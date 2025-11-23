@@ -1,0 +1,17 @@
+{
+    "name": "lead-scraper-actor",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "Apify actor for scraping business lead information from company websites",
+    "main": "main.js",
+    "dependencies": {
+      "apify": "^3.1.0",
+      "crawlee": "^3.5.0"
+    },
+    "scripts": {
+      "start": "node main.js",
+      "test": "echo \"No tests specified\" && exit 0"
+    },
+    "author": "Your Name",
+    "license": "Apache-2.0"
+  }

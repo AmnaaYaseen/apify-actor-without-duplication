@@ -1,0 +1,65 @@
+{
+    "actorSpecification": 1,
+    "name": "lead-scraper",
+    "title": "Business Lead Scraper",
+    "description": "Extracts comprehensive business lead data including company information, decision makers, contact details, and website quality assessment. Perfect for B2B sales, marketing agencies, and business development.",
+    "version": "1.0.0",
+    "meta": {
+      "templateId": "puppeteer-crawler"
+    },
+    "input": "./INPUT_SCHEMA.json",
+    "dockerfile": "./Dockerfile",
+    "readme": "./README.md",
+    "storages": {
+      "dataset": {
+        "actorSpecification": 1,
+        "title": "Scraped Leads",
+        "description": "Business lead data extracted from company websites",
+        "views": {
+          "overview": {
+            "title": "Overview",
+            "transformation": {
+              "fields": [
+                "companyName",
+                "websiteUrl",
+                "industry",
+                "email",
+                "phone",
+                "leadScore",
+                "websiteQualityRating"
+              ]
+            },
+            "display": {
+              "component": "table",
+              "properties": {
+                "companyName": {
+                  "label": "Company",
+                  "format": "text"
+                },
+                "industry": {
+                  "label": "Industry",
+                  "format": "text"
+                },
+                "email": {
+                  "label": "Email",
+                  "format": "text"
+                },
+                "phone": {
+                  "label": "Phone",
+                  "format": "text"
+                },
+                "leadScore": {
+                  "label": "Lead Score",
+                  "format": "number"
+                },
+                "websiteQualityRating": {
+                  "label": "Website Quality",
+                  "format": "text"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }

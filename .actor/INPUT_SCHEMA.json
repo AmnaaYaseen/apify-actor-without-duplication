@@ -1,0 +1,93 @@
+{
+    "title": "Smart Lead Finder - No Duplicates",
+    "description": "Automatically finds NEW companies every run - never scrapes the same company twice!",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "searchQuery": {
+            "title": "Search Query",
+            "type": "string",
+            "description": "What type of businesses to find (e.g., 'tech companies', 'dental clinics', 'law firms')",
+            "editor": "textfield",
+            "default": "tech companies",
+            "prefill": "tech companies"
+        },
+        "location": {
+            "title": "Location",
+            "type": "string",
+            "description": "City, state, or country (e.g., 'New York', 'San Francisco, CA', 'London, UK')",
+            "editor": "textfield",
+            "default": "New York",
+            "prefill": "New York"
+        },
+        "maxResults": {
+            "title": "Maximum Results",
+            "type": "integer",
+            "description": "Maximum number of NEW companies to find (will skip already-scraped ones)",
+            "default": 50,
+            "minimum": 5,
+            "maximum": 200
+        },
+        "skipDuplicates": {
+            "title": "Skip Previously Scraped Companies",
+            "type": "boolean",
+            "description": "If enabled, will never scrape the same company twice across all runs",
+            "default": true
+        },
+        "targetIndustry": {
+            "title": "Filter by Industry (Optional)",
+            "type": "string",
+            "description": "Only return companies in this specific industry",
+            "editor": "select",
+            "enum": [
+                "",
+                "Technology",
+                "Healthcare",
+                "Finance",
+                "Real Estate",
+                "Retail",
+                "Restaurant",
+                "Legal",
+                "Education",
+                "Construction",
+                "Marketing",
+                "Consulting",
+                "Manufacturing",
+                "Other"
+            ],
+            "enumTitles": [
+                "All Industries (No Filter)",
+                "Technology",
+                "Healthcare",
+                "Finance",
+                "Real Estate",
+                "Retail",
+                "Restaurant",
+                "Legal",
+                "Education",
+                "Construction",
+                "Marketing",
+                "Consulting",
+                "Manufacturing",
+                "Other"
+            ],
+            "default": ""
+        },
+        "includeWebsiteData": {
+            "title": "Include Website Enrichment",
+            "type": "boolean",
+            "description": "Visit websites to extract emails, decision makers, etc.",
+            "default": true
+        },
+        "proxyConfiguration": {
+            "title": "Proxy Configuration",
+            "type": "object",
+            "description": "Proxy settings (recommended)",
+            "editor": "proxy",
+            "default": {
+                "useApifyProxy": true
+            }
+        }
+    },
+    "required": ["searchQuery", "location"]
+}

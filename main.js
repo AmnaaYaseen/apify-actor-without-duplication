@@ -1,5 +1,5 @@
 // ====================
-// SMART LEAD FINDER - Automatically skips previously scraped companies
+// FIXED SMART LEAD FINDER - No Duplicates
 // ====================
 
 import { Actor } from 'apify';
@@ -23,12 +23,13 @@ console.log(`Search: "${searchQuery}" in "${location}"`);
 console.log(`Max Results: ${maxResults}`);
 console.log(`Skip Duplicates: ${skipDuplicates ? 'YES' : 'NO'}`);
 
-// Track processed companies
+// Helper function to wait/sleep
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const processedWebsites = new Set();
 const processedNames = new Set();
 let scrapedCompaniesHistory = new Set();
 
-// Load previously scraped companies from Key-Value Store
 if (skipDuplicates) {
     try {
         const kvStore = await Actor.openKeyValueStore();
@@ -71,9 +72,7 @@ const createLeadObject = () => ({
     errors: []
 });
 
-// Helper function to create unique company identifier
 function getCompanyIdentifier(company) {
-    // Use website URL if available, otherwise use name + location
     if (company.website) {
         return company.website.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
     }
@@ -91,7 +90,7 @@ function markAsScraped(company) {
 }
 
 // ====================
-// GOOGLE MAPS SCRAPER with PAGINATION
+// GOOGLE MAPS SCRAPER - FIXED
 // ====================
 
 async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
@@ -100,21 +99,23 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
     const proxyConfig = await Actor.createProxyConfiguration(proxyConfiguration);
     const allResults = [];
     let scrollAttempts = 0;
-    const maxScrollAttempts = 20; // Scroll more to find more unique companies
+    const maxScrollAttempts = 15;
 
     const mapsCrawler = new PuppeteerCrawler({
         proxyConfiguration: proxyConfig,
+        requestHandlerTimeoutSecs: 120,
         
         async requestHandler({ page }) {
             const searchUrl = `https://www.google.com/maps/search/${encodeURIComponent(searchTerm + ' ' + locationTerm)}`;
             
-            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-            await page.waitForTimeout(3000);
+            console.log(`Opening: ${searchUrl}`);
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+            await wait(4000); // FIXED: Using wait() instead of page.waitForTimeout()
 
             console.log('🔄 Scrolling to load more results...');
 
-            // Aggressive scrolling to find MORE companies
-            while (scrollAttempts < maxScrollAttempts && allResults.length < maxCount * 3) {
+            // Scroll to load more businesses
+            while (scrollAttempts < maxScrollAttempts && allResults.length < maxCount * 2) {
                 await page.evaluate(() => {
                     const scrollableDiv = document.querySelector('div[role="feed"]');
                     if (scrollableDiv) {
@@ -122,22 +123,19 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
                     }
                 });
                 
-                await page.waitForTimeout(2000);
+                await wait(2000); // FIXED
                 scrollAttempts++;
 
-                // Check current count
-                const currentCount = await page.evaluate(() => {
-                    return document.querySelectorAll('div[role="article"]').length;
-                });
-
-                if (currentCount > 0 && scrollAttempts % 5 === 0) {
-                    console.log(`  📊 Found ${currentCount} items so far... (scroll ${scrollAttempts}/${maxScrollAttempts})`);
+                if (scrollAttempts % 3 === 0) {
+                    const currentCount = await page.evaluate(() => {
+                        return document.querySelectorAll('div[role="article"]').length;
+                    });
+                    console.log(`  📊 Loaded ${currentCount} items (scroll ${scrollAttempts}/${maxScrollAttempts})`);
                 }
             }
 
-            console.log('✓ Finished scrolling, extracting data...');
+            console.log('✓ Extracting business data...');
 
-            // Extract business data
             const businesses = await page.evaluate(() => {
                 const results = [];
                 const items = document.querySelectorAll('div[role="article"]');
@@ -157,51 +155,47 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
                         const href = link ? link.href : null;
                         
                         if (name) {
-                            results.push({
-                                name,
-                                rating,
-                                address,
-                                mapsUrl: href
-                            });
+                            results.push({ name, rating, address, mapsUrl: href });
                         }
                     } catch (e) {
-                        console.log('Error extracting item:', e);
+                        // Skip this item
                     }
                 });
                 
                 return results;
             });
 
-            console.log(`✓ Found ${businesses.length} total businesses from Google Maps`);
+            console.log(`✓ Found ${businesses.length} businesses from Google Maps`);
 
-            // Filter out duplicates from previous scraping sessions
             let newBusinessesCount = 0;
             let skippedCount = 0;
 
             for (const business of businesses) {
                 if (allResults.length >= maxCount) break;
 
-                // Check if already scraped
                 if (skipDuplicates && isAlreadyScraped(business)) {
                     skippedCount++;
-                    console.log(`  ⏭️  Skipping ${business.name} (already scraped before)`);
+                    console.log(`  ⏭️  Skipping ${business.name} (already scraped)`);
                     continue;
                 }
 
-                // Check if already in current batch
                 const identifier = getCompanyIdentifier(business);
-                if (processedNames.has(identifier)) {
-                    continue;
-                }
+                if (processedNames.has(identifier)) continue;
 
                 try {
                     if (business.mapsUrl) {
-                        await page.goto(business.mapsUrl, { waitUntil: 'networkidle2', timeout: 20000 });
-                        await page.waitForTimeout(2000);
+                        await page.goto(business.mapsUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+                        await wait(2500); // FIXED
 
                         const details = await page.evaluate(() => {
                             const websiteLink = Array.from(document.querySelectorAll('a'))
-                                .find(a => a.href && (a.href.includes('http') && !a.href.includes('google.com') && !a.href.includes('maps')));
+                                .find(a => {
+                                    const href = a.href || '';
+                                    return href.startsWith('http') && 
+                                           !href.includes('google.com') && 
+                                           !href.includes('maps') &&
+                                           !href.includes('goo.gl');
+                                });
                             
                             const phoneButton = Array.from(document.querySelectorAll('button'))
                                 .find(btn => btn.getAttribute('data-item-id')?.includes('phone'));
@@ -223,10 +217,10 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
                         processedNames.add(identifier);
                         newBusinessesCount++;
 
-                        console.log(`  ✓ ${business.name} (NEW) - Website: ${details.website ? '✓' : '✗'}`);
+                        console.log(`  ✓ ${business.name} - Website: ${details.website ? '✓' : '✗'}`);
                     }
                 } catch (e) {
-                    console.log(`  ✗ Error getting details for ${business.name}:`, e.message);
+                    console.log(`  ✗ Error: ${business.name} - ${e.message}`);
                     allResults.push(business);
                 }
 
@@ -235,8 +229,8 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
 
             console.log(`\n📊 Summary:`);
             console.log(`  • New businesses found: ${newBusinessesCount}`);
-            console.log(`  • Skipped (already scraped): ${skippedCount}`);
-            console.log(`  • Total in this run: ${allResults.length}`);
+            console.log(`  • Skipped (duplicates): ${skippedCount}`);
+            console.log(`  • Total this run: ${allResults.length}`);
         },
         
         maxRequestsPerCrawl: 1,
@@ -249,7 +243,7 @@ async function scrapeGoogleMaps(searchTerm, locationTerm, maxCount) {
 }
 
 // ====================
-// WEBSITE ENRICHMENT FUNCTIONS
+// WEBSITE ENRICHMENT - FIXED
 // ====================
 
 async function extractEmail(page) {
@@ -262,11 +256,8 @@ async function extractEmail(page) {
                 const lower = email.toLowerCase();
                 return !lower.includes('example.com') &&
                        !lower.includes('yourdomain') &&
-                       !lower.includes('placeholder') &&
                        !lower.startsWith('noreply') &&
-                       !lower.startsWith('no-reply') &&
-                       !lower.includes('privacy@') &&
-                       !lower.includes('abuse@');
+                       !lower.includes('privacy@');
             });
             return goodEmail || null;
         });
@@ -301,16 +292,16 @@ async function detectIndustry(page) {
             const metaDescription = document.querySelector('meta[name="description"]');
             const fullText = text + (metaDescription ? metaDescription.content.toLowerCase() : '');
             const industries = {
-                'Technology': ['software', 'saas', 'tech', 'digital', 'app', 'platform', 'cloud', 'IT', 'development'],
-                'Healthcare': ['health', 'medical', 'hospital', 'clinic', 'dental', 'pharmacy', 'wellness'],
-                'Finance': ['finance', 'bank', 'accounting', 'insurance', 'investment', 'financial'],
-                'Real Estate': ['real estate', 'property', 'realtor', 'mortgage', 'housing'],
-                'Retail': ['retail', 'shop', 'store', 'ecommerce', 'boutique'],
-                'Restaurant': ['restaurant', 'cafe', 'food', 'dining', 'catering'],
-                'Legal': ['law', 'legal', 'attorney', 'lawyer', 'firm'],
-                'Education': ['education', 'school', 'training', 'learning', 'university'],
-                'Construction': ['construction', 'builder', 'contractor', 'renovation'],
-                'Marketing': ['marketing', 'advertising', 'agency', 'branding', 'seo']
+                'Technology': ['software', 'saas', 'tech', 'digital', 'app', 'IT'],
+                'Healthcare': ['health', 'medical', 'clinic', 'dental', 'pharmacy'],
+                'Finance': ['finance', 'bank', 'accounting', 'insurance'],
+                'Real Estate': ['real estate', 'property', 'realtor'],
+                'Retail': ['retail', 'shop', 'store', 'ecommerce'],
+                'Restaurant': ['restaurant', 'cafe', 'food', 'dining'],
+                'Legal': ['law', 'legal', 'attorney', 'lawyer'],
+                'Education': ['education', 'school', 'training'],
+                'Construction': ['construction', 'builder', 'contractor'],
+                'Marketing': ['marketing', 'advertising', 'agency', 'branding']
             };
             for (const [industry, keywords] of Object.entries(industries)) {
                 if (keywords.some(keyword => fullText.includes(keyword))) return industry;
@@ -328,11 +319,11 @@ async function assessWebsiteQuality(page) {
             return {
                 hasSSL: window.location.protocol === 'https:',
                 hasMobileMeta: !!document.querySelector('meta[name="viewport"]'),
-                hasLogo: !!document.querySelector('img[alt*="logo" i], img[class*="logo" i]'),
+                hasLogo: !!document.querySelector('img[alt*="logo" i]'),
                 hasContactPage: !!document.querySelector('a[href*="contact" i]'),
                 imageCount: document.querySelectorAll('img').length,
-                hasModernDesign: !!document.querySelector('[class*="flex"], [class*="grid"]'),
-                hasSocialLinks: document.querySelectorAll('a[href*="facebook.com"], a[href*="linkedin.com"]').length > 0,
+                hasModernDesign: !!document.querySelector('[class*="flex"]'),
+                hasSocialLinks: document.querySelectorAll('a[href*="facebook.com"]').length > 0,
             };
         });
         let score = 0;
@@ -354,12 +345,15 @@ async function findDecisionMakers(page) {
     try {
         const teamPageUrl = await page.evaluate(() => {
             const links = Array.from(document.querySelectorAll('a'));
-            const teamLink = links.find(a => /team|about|leadership/i.test(a.textContent) || /team|about|leadership/i.test(a.href));
+            const teamLink = links.find(a => /team|about|leadership/i.test(a.textContent));
             return teamLink ? teamLink.href : null;
         });
-        if (teamPageUrl) await page.goto(teamPageUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+        if (teamPageUrl) {
+            await page.goto(teamPageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await wait(1500); // FIXED
+        }
         return await page.evaluate(() => {
-            const titles = ['CEO', 'Founder', 'Co-Founder', 'President', 'Director', 'Owner'];
+            const titles = ['CEO', 'Founder', 'President', 'Director', 'Owner'];
             const text = document.body.innerText;
             for (const title of titles) {
                 const regex = new RegExp(`([A-Z][a-z]+\\s+[A-Z][a-z]+)(?:.*?)${title}`, 'i');
@@ -395,12 +389,18 @@ function calculateLeadScore(data) {
 async function enrichWithWebsiteData(company) {
     if (!company.website) {
         console.log(`  ⚠️  No website for ${company.name}`);
-        return company;
+        const basicLead = createLeadObject();
+        basicLead.companyName = company.name;
+        basicLead.phone = company.phone;
+        basicLead.location = company.address || company.fullAddress;
+        return basicLead;
     }
+    
     if (processedWebsites.has(company.website)) {
         console.log(`  ⏭️  Already processed ${company.website}`);
-        return company;
+        return null;
     }
+    
     processedWebsites.add(company.website);
     console.log(`  🔍 Enriching ${company.name}...`);
 
@@ -413,9 +413,13 @@ async function enrichWithWebsiteData(company) {
     const proxyConfig = await Actor.createProxyConfiguration(proxyConfiguration);
     const enrichmentCrawler = new PuppeteerCrawler({
         proxyConfiguration: proxyConfig,
+        requestHandlerTimeoutSecs: 60,
+        
         async requestHandler({ page }) {
             try {
-                await page.goto(company.website, { waitUntil: 'networkidle2', timeout: 30000 });
+                await page.goto(company.website, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                await wait(2000); // FIXED
+                
                 if (!leadData.phone) {
                     leadData.phone = await page.evaluate(() => {
                         const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
@@ -424,6 +428,7 @@ async function enrichWithWebsiteData(company) {
                         return phones && phones.length > 0 ? phones[0].trim() : null;
                     });
                 }
+                
                 leadData.email = await extractEmail(page);
                 const socialLinks = await extractSocialLinks(page);
                 Object.assign(leadData, socialLinks);
@@ -446,8 +451,8 @@ async function enrichWithWebsiteData(company) {
         },
         maxRequestsPerCrawl: 1,
         maxConcurrency: 1,
-        requestHandlerTimeoutSecs: 60,
     });
+    
     await enrichmentCrawler.run([{ url: company.website }]);
     return leadData;
 }
@@ -461,8 +466,8 @@ try {
     console.log(`\n✓ Found ${businesses.length} NEW businesses\n`);
 
     if (businesses.length === 0) {
-        console.log('❌ No NEW businesses found. All companies in this search were already scraped!');
-        console.log('💡 Try: Different location, different search query, or disable skipDuplicates');
+        console.log('❌ No NEW businesses found.');
+        console.log('💡 Try: Different location, search query, or disable skipDuplicates');
         await Actor.exit();
     }
 
@@ -470,6 +475,9 @@ try {
         console.log('🔍 Starting website enrichment...\n');
         for (const business of businesses) {
             const enrichedLead = await enrichWithWebsiteData(business);
+            
+            if (!enrichedLead) continue;
+            
             if (targetIndustry && enrichedLead.industry !== targetIndustry) {
                 console.log(`  ⏭️  Skipping ${business.name} - Industry mismatch`);
                 continue;
@@ -483,13 +491,12 @@ try {
             basicLead.companyName = business.name;
             basicLead.websiteUrl = business.website;
             basicLead.phone = business.phone;
-            leadData.location = business.address || business.fullAddress;
+            basicLead.location = business.address || business.fullAddress;
             await Actor.pushData(basicLead);
             markAsScraped(business);
         }
     }
 
-    // Save updated history
     if (skipDuplicates) {
         const kvStore = await Actor.openKeyValueStore();
         await kvStore.setValue('SCRAPED_COMPANIES_HISTORY', Array.from(scrapedCompaniesHistory));
